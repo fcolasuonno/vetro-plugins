@@ -14,7 +14,7 @@
 // Plain ES5: older TVs run Node 4.4.
 var fs = require('fs'), path = require('path'), http = require('http'), url = require('url');
 // TODO(release): replace the placeholder URL and SHA-256 below with the real pinned surfsharktv release, then rebuild.
-var BINARY = { url: 'https://github.com/fcolasuonno/surfsharktv/releases/download/v1.0.0/surfsharktv.gz', sha256: '0000000000000000000000000000000000000000000000000000000000000000' };
+var BINARY = { url: 'https://github.com/fcolasuonno/surfsharktv/releases/download/v1.0.0/surfsharktv.gz', sha256: '4f484e4c7af9064aca6f10db46376a85c76d73faeeb589023cea6d6f333fa09a' };
 var DIR = '/opt/surfsharktv', RO = DIR + '/ro', RUN = RO + '/surfsharktv';
 var COUNTRY = /^[A-Z]{2}$/, SHA = /^[0-9a-f]{64}$/, URL_RE = /^https:\/\/[A-Za-z0-9.\/_~%+-]+$/;
 var RETRY_MS = 120000, TICK_MS = 60000, FIRST_TICK_MS = 15000, MAX_BODY = 8192;
