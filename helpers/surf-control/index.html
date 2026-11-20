@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Surf Control</title>
+<style>
+:root{--bg:#080f23;--surface:#101c35;--border:#344360;--text:#f5f8ff;--muted:#aab8d1;--accent:#8fbaff;--on:#7fcba0;--bad:#ef8a80}
+*{box-sizing:border-box}body{margin:0;padding:28px;background:var(--bg);color:var(--text);font:20px/1.5 sans-serif}
+h1{font-size:34px;margin:0 0 24px}h2{font-size:24px;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid var(--border)}
+.card{background:none;border:0;border-radius:0;padding:0;margin:0 0 32px;width:100%}
+.note{color:var(--muted);font-size:17px;margin:6px 0 0}
+.statusline{display:flex;align-items:center;gap:18px;margin-bottom:8px}
+#dot{width:24px;height:24px;border-radius:50%;background:var(--muted);flex-shrink:0}
+#dot.up{background:var(--on);box-shadow:0 0 18px var(--on)}
+#dot.err{background:var(--bad)}
+#status{font-size:30px;font-weight:700}#status.up{color:var(--on)}#status.err{color:var(--bad)}
+#flags{font-size:19px;margin:12px 0 0}#flags b{color:var(--accent)}
+.switch{display:flex;align-items:center;gap:20px;margin:18px 0;font-size:24px;cursor:pointer;width:max-content;max-width:100%}
+.switch input{appearance:none;-webkit-appearance:none;width:88px;height:48px;margin:0;border-radius:99px;background:var(--border);position:relative;flex-shrink:0;cursor:pointer}
+.switch input:before{content:"";position:absolute;left:5px;top:5px;width:38px;height:38px;border-radius:50%;background:var(--muted);transition:transform .15s}
+.switch input:checked{background:#123bb5}
+.switch input:checked:before{transform:translateX(40px);background:#fff}
+.switch input:focus{outline:5px solid var(--accent);box-shadow:0 0 0 3px #000}
+.switch input:disabled{opacity:.5}
+button,select{font:inherit;min-height:64px;padding:0 24px;border:2px solid var(--border);border-radius:12px;background:var(--border);color:var(--text);cursor:pointer}
+button:focus,select:focus{outline:5px solid var(--accent);box-shadow:0 0 0 3px #000}
+#countryGrid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:14px}
+#countryGrid button{min-height:64px;font-size:17px;text-align:left;padding:0 12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#countryGrid button.selected{border-color:var(--on);background:#14532d}
+#countryGrid button.pending{border-color:var(--accent);background:#123bb5}
+#countryGrid button small{display:none}
+#countryConfirm{min-height:72px;font-size:24px;border-color:var(--accent)}
+.row{margin-top:16px}
+#msg{min-height:1.5em;color:var(--bad);font-size:18px}
+</style></head><body>
+<h1>Surf Control</h1>
+
+<div class="card">
+  <h2>VPN</h2>
+  <div class="statusline"><span id="dot"></span><span id="status" aria-live="polite">Reading…</span></div>
+  <p id="detail" class="note"></p>
+  <p id="flags" aria-live="polite"></p>
+  <label class="switch"><input id="vpn" type="checkbox" role="switch"><span>VPN</span></label>
+  <label class="switch"><input id="ks" type="checkbox" role="switch"><span>Kill switch</span></label>
+  <p class="note">Blocks internet outside the tunnel; your LAN and Vetro stay reachable.</p>
+  <label class="switch"><input id="auto" type="checkbox" role="switch"><span>Keep connected</span></label>
+  <p class="note">Reconnects after a restart or a drop.</p>
+  <p id="msg" aria-live="polite"></p>
+  <div class="row"><button id="refresh">Refresh</button></div>
+</div>
+
+<div class="card">
+  <h2>Country</h2>
+  <p class="note" id="countryNow">Selected: Fastest server</p>
+  <div class="row"><button id="countryConfirm">Confirm country change</button></div>
+  <div id="countryGrid"></div>
+  <p class="note">Move with the D-pad, press OK to choose. It reconnects while the VPN is on.</p>
+</div>
+
+<script>
+// Tizen webviews reach local services via the TV's LAN IP (TV-Store does the same), not 127.0.0.1.
+var base='http://192.168.1.19:18765',busy=false,data=null,countries=[];
+function $(id){return document.getElementById(id)}
+function say(t){$('msg').textContent=t||''}
+function api(path,body,cb){
+ var opt=body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
+ fetch(base+path,opt).then(function(r){return r.json().then(function(d){if(!r.ok||d.ok===false)throw new Error(d.error||'Failed');return d})})
+ .then(function(d){cb(null,d)}).catch(function(e){cb(e)});
+}
+function countryName(code){for(var i=0;i<countries.length;i++)if(countries[i].code===code)return countries[i].name;return code||'Fastest server'}
+function showCountry(code){var name=countryName(code);
+ $('countryNow').textContent='Selected: '+name;
+ var bs=$('countryGrid').getElementsByTagName('button');
+ for(var i=0;i<bs.length;i++)bs[i].className=(bs[i].getAttribute('data-code')||'')===code?'selected':''}
+function show(d){data=d;
+ $('vpn').checked=!!d.running;$('ks').checked=!!d.killswitch;$('auto').checked=!!d.autostart;
+ $('dot').className=d.running?'up':'';$('status').className=d.running?'up':'';
+ $('status').textContent=d.running?'CONNECTED':d.enabled&&d.autostart?'OFF · WILL RECONNECT':'DISCONNECTED';
+ showCountry(d.country||'');
+ $('detail').textContent=(d.running?'Server: '+(d.server||'unknown')+' · ': '')+'Country: '+(d.country?d.country+' · '+countryName(d.country):'Fastest server')+(d.since?' · since '+new Date(d.since*1000).toLocaleTimeString():'');
+ $('flags').innerHTML='VPN <b>'+(d.running?'ON':'OFF')+'</b> &nbsp;·&nbsp; Kill switch <b>'+(d.killswitch?'ON':'OFF')+'</b> &nbsp;·&nbsp; Keep connected <b>'+(d.autostart?'ON':'OFF')+'</b>';
+ if(d.lastAuto&&!d.lastAuto.ok)say('Last automatic start failed: '+d.lastAuto.error)}
+function load(cb){api('/status',undefined,function(e,d){if(e){$('status').textContent='UNAVAILABLE';$('status').className='err';$('dot').className='err';if(cb)cb(null);return}show(d);if(cb)cb(d)})}
+function loadCountries(){api('/countries',undefined,function(e,d){if(e||!d||!d.countries)return;
+ countries=d.countries;var g=$('countryGrid'),html='<button data-code="">Fastest server</button>';
+ for(var i=0;i<countries.length;i++){var c=countries[i];html+='<button data-code="'+c.code+'">'+c.name+' <small>'+c.code+'</small></button>'}
+ g.innerHTML=html;var bs=g.getElementsByTagName('button');
+ for(var j=0;j<bs.length;j++){bs[j].onclick=(function(b){return function(){pick(b.getAttribute('data-code')||'')}})(bs[j])}
+ showCountry(data?data.country||'':'')})}
+function poll(expected,tries){load(function(d){if(!d||tries<=0)return;
+ // On/off commands wait until the reported running state matches. Settings commands (expected===null)
+ // have no single state to wait for, so keep refreshing for a few ticks while the queue drains.
+ if(expected!==null&&d.running!==expected){setTimeout(function(){poll(expected,tries-1)},2000);return}
+ if(expected===null&&tries>3){setTimeout(function(){poll(expected,tries-1)},2000);return}
+ loadCountries()})}
+function act(path,body,label,expected){if(busy)return;busy=true;say(label+'…');
+ api(path,body,function(e,d){busy=false;
+  if(e){say(label+' failed: '+e.message);load();return}
+  say(label+' sent. Waiting for the TV…');poll(expected,8)})}
+
+// Picking a country stages it; only Confirm sends it to the TV.
+var pending=null;
+function pick(code){pending=code;var bs=$('countryGrid').getElementsByTagName('button');
+ for(var i=0;i<bs.length;i++)bs[i].className=(bs[i].getAttribute('data-code')||'')===code?'pending':'';
+ $('countryNow').textContent='To apply: '+countryName(code)+' — press Confirm'}
+function confirmCountry(){if(pending===null){say('Choose a country first');return}
+ var code=pending,label=code?'Changing country to '+countryName(code):'Using fastest server';
+ pending=null;showCountry(code);act('/country',{country:code},label,null)}
+
+$('vpn').onchange=function(){var on=this.checked;act(on?'/on':'/off',{},on?'Connecting':'Disconnecting',on)};
+$('ks').onchange=function(){var on=this.checked;act('/killswitch',{on:on},on?'Kill switch on':'Kill switch off',null)};
+$('auto').onchange=function(){var on=this.checked;act('/autostart',{on:on},on?'Keep connected on':'Keep connected off',null)};
+$('countryConfirm').onclick=confirmCountry;
+$('refresh').onclick=function(){load();loadCountries()};
+
+// Spatial D-pad navigation: nearest control in the pressed direction (works for the country grid).
+function focusables(){return [].slice.call(document.querySelectorAll('button,input[type=checkbox]')).filter(function(el){return el.offsetParent!==null})}
+function nav(dx,dy){var els=focusables(),cur=document.activeElement;
+ if(!els.length)return;if(!cur||els.indexOf(cur)<0){els[0].focus();return}
+ var r=cur.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2,best=null,score=1e9;
+ els.forEach(function(el){if(el===cur)return;var b=el.getBoundingClientRect(),x=b.left+b.width/2,y=b.top+b.height/2;
+  var along=dx?(x-cx)*dx:(y-cy)*dy,perp=dx?Math.abs(y-cy):Math.abs(x-cx);
+  if(along<=5)return;var s=along+perp*2;if(s<score){score=s;best=el}});
+ if(best){best.focus();if(best.scrollIntoView)best.scrollIntoView({block:'nearest',inline:'nearest'})}}
+document.addEventListener('keydown',function(e){var k=e.keyCode||e.which;
+ if(k===37){e.preventDefault();nav(-1,0)}else if(k===39){e.preventDefault();nav(1,0)}
+ else if(k===38){e.preventDefault();nav(0,-1)}else if(k===40){e.preventDefault();nav(0,1)}},true);
+window.addEventListener('load',function(){setTimeout(function(){var els=focusables();if(els.length)els[0].focus()},400)});
+try{if(window.tizen&&tizen.tvinputdevice)tizen.tvinputdevice.registerKey(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'])}catch(e){}
+load();loadCountries();
+</script></body></html>

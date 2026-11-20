@@ -4,3 +4,6 @@ helpers/**/obj/
 .DS_Store
 *.pem
 !catalog-public.pem
+
+# Tizen widget build artifacts
+helpers/surf-control/*.wgt

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark"><title>Surfshark</title>
+<style>
+:root{--bg:#080f23;--surface:#101c35;--raised:#192943;--border:#344360;--text:#f5f8ff;--muted:#aab8d1;--accent:#8fbaff;--action:#123bb5;--ok:#7fcba0;--danger:#ef8a80}
+@media (prefers-color-scheme:light){:root{--bg:#f5f8ff;--surface:#fff;--raised:#eef2fb;--border:#c9d3e6;--text:#0b1430;--muted:#4a5878;--accent:#123bb5;--ok:#1e7a4a;--danger:#b3261e}}
+*{box-sizing:border-box}body{margin:0;padding:16px;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px;margin:0 0 16px;max-width:720px}
+h2{margin:0 0 8px;font-size:16px}p{margin:0 0 8px}.note{color:var(--muted);font-size:12px}
+#status{font-weight:600}#status.on{color:var(--ok)}#status.bad{color:var(--danger)}
+.switch{display:flex;align-items:center;gap:12px;margin:12px 0 0;cursor:pointer;width:max-content;max-width:100%}
+.switch input{appearance:none;-webkit-appearance:none;width:40px;height:24px;margin:0;border:1px solid var(--border);border-radius:99px;background:var(--raised);position:relative;flex-shrink:0;cursor:pointer}
+.switch input:before{content:"";position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:var(--muted);transition:transform .12s}
+.switch input:checked{background:var(--action);border-color:var(--accent)}.switch input:checked:before{transform:translateX(16px);background:#f5f8ff}
+.switch input:disabled{opacity:.45;cursor:default}
+.field{display:flex;flex-direction:column;gap:4px;margin:12px 0 0;max-width:360px}.field span{color:var(--muted);font-size:12px}
+select,input[type=password],input[type=text],textarea,button{height:40px;padding:0 14px;border:1px solid var(--border);border-radius:8px;background:var(--raised);color:inherit;font:inherit}
+.field textarea{height:auto;min-height:130px;padding:10px 14px;resize:vertical;font:12px/1.4 monospace}
+button{cursor:pointer}button.primary{background:var(--action);border-color:var(--action);color:#f5f8ff;font-weight:600}button:disabled,select:disabled,input:disabled{opacity:.5;cursor:default}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0}#msg{min-height:1.5em;margin-top:12px;font-size:12px}#msg.bad{color:var(--danger)}
+</style></head><body>
+<div class="panel"><h2>Surfshark</h2>
+<p id="status" aria-live="polite">Reading state…</p><p id="detail" class="note"></p>
+<label class="switch"><input id="on" type="checkbox" role="switch"><span>VPN on</span></label>
+<label class="field"><span>Country</span><select id="country"><option value="">Fastest server (lowest load)</option></select></label>
+<label class="switch"><input id="ks" type="checkbox" role="switch"><span>Kill switch · no internet outside the VPN while it is on</span></label>
+<label class="switch"><input id="auto" type="checkbox" role="switch"><span>Keep connected · reconnect after a restart or a drop</span></label>
+<p class="note" style="margin-top:12px">Surfshark WireGuard runs on the TV itself. Changing the country or the kill switch reconnects the VPN when it is on. Your home network, Vetro included, stays reachable; DNS goes to Surfshark and IPv6 is blocked while the VPN is on. Reconnecting needs this plugin switched on.</p>
+<div class="row"><button id="refresh">Refresh</button></div><p id="msg" aria-live="polite"></p></div>
+<div class="panel"><h2>Private key · country switching</h2><p id="keyState" class="note"></p>
+<label class="field"><span>WireGuard private key from Surfshark's manual setup (base64)</span><input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste the private key you registered on surfshark.com"></label>
+<div class="row"><button id="saveKey" class="primary">Save private key</button></div>
+<p class="note" style="margin-top:12px">In a browser, go to Surfshark → VPN → Manual setup → Router → WireGuard, generate a key pair and paste its <em>public</em> key into the website. Paste the matching <em>private</em> key here. The TV then picks the least loaded server in the country you choose above, using Surfshark's public server list — no login needed. Saving a key replaces any full config below.</p></div>
+<div class="panel"><h2>WireGuard config (fixed server)</h2><p id="configState" class="note"></p>
+<label class="field"><span>Paste the config you downloaded from the Surfshark website</span><textarea id="conf" spellcheck="false" placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = 10.14.0.2/16&#10;&#10;[Peer]&#10;PublicKey = ...&#10;Endpoint = xx-xxx.prod.surfshark.com:51820&#10;AllowedIPs = 0.0.0.0/0"></textarea></label>
+<div class="row"><button id="saveConfig" class="primary">Save config</button></div>
+<p class="note" style="margin-top:12px">In a browser, go to Surfshark → VPN → Manual setup → Router → WireGuard, generate a key pair, choose a location and download the config. Paste its whole contents here. The config is stored on the TV only and is then used instead of account login, which some networks block.</p></div>
+<div id="missing" class="panel" hidden><h2>VPN program</h2><p id="missingText" class="note"></p><div class="row"><button id="install" class="primary">Download and install</button></div></div>
+<script>
+var data=null,busy=false,ids=['on','country','ks','auto','key','saveKey','conf','saveConfig'];
+function $(id){return document.getElementById(id)}
+function api(u,b){return fetch(u,b===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(function(r){return r.json().then(function(d){if(!r.ok||d.ok===false)throw new Error(d.error||'Action failed');return d})})}
+function say(t,bad){$('msg').textContent=t||'';$('msg').className=bad?'bad':''}
+function setCountry(c){var s=$('country');if(c&&![].some.call(s.options,function(o){return o.value===c})){var o=document.createElement('option');o.value=c;o.textContent=c;s.appendChild(o)}s.value=c||''}
+function show(d){data=d;var ok=d.installed!==false;$('missing').hidden=ok;ids.forEach(function(id){$(id).disabled=!ok||busy});
+ if(!ok){$('status').textContent='The VPN program is not installed.';$('status').className='bad';$('detail').textContent='';$('configState').textContent='';$('keyState').textContent='';
+  var li=d.lastInstall&&d.lastInstall.result;$('missingText').textContent=!d.canDownload?'No download is configured in this plugin version. Install surfsharktv into /opt/surfsharktv by hand (see the plugin README).':'surfsharktv is downloaded from the address pinned in this plugin and installed only if its SHA-256 matches.'+(li&&li!=='installed'&&li!=='current'?' Last attempt: '+li+'.':'');$('install').hidden=!d.canDownload;return}
+ $('on').checked=!!d.running;$('ks').checked=!!d.killswitch;$('auto').checked=!!d.autostart;setCountry(d.country);
+ $('status').textContent=d.running?'Connected'+(d.server?' · '+d.server:''):'Off'+(d.enabled&&d.autostart?' · will reconnect':'');
+ $('status').className=d.running?'on':'';
+ var auto=d.lastAuto&&!d.lastAuto.ok?' · Last automatic start failed: '+d.lastAuto.error:'';
+ $('detail').textContent=(d.running?(d.since?'Connected at '+new Date(d.since*1000).toLocaleTimeString():''):d.lastError?'Last message: '+d.lastError:'')+auto;
+ $('keyState').textContent=d.hasPrivateKey?'A private key is saved: changing the country above reconnects to a server there.':'No private key saved.';
+ $('configState').textContent=d.hasConfig?'A WireGuard config is saved: its server is fixed, so the country picker is ignored.':'No config saved. Paste a private key above or a full config below.'}
+function load(){return api('state').then(show).catch(function(e){$('status').textContent=e.message;$('status').className='bad'})}
+function loadCountries(){api('countries').then(function(d){var cur=data?data.country:$('country').value;$('country').innerHTML='<option value="">Fastest server (lowest load)</option>'+d.countries.map(function(c){var o=document.createElement('option');o.value=c.code;o.textContent=c.name;return o.outerHTML}).join('');setCountry(cur)}).catch(function(){})}
+function settings(){return {country:$('country').value,killswitch:$('ks').checked,autostart:$('auto').checked}}
+function act(body,check,working){if(busy)return;busy=true;ids.forEach(function(id){$(id).disabled=true});say(working||'Working…');
+ return api('action',body).then(function(d){show(d);say(check(d))}).catch(function(e){say('Not confirmed: '+e.message,true)}).then(function(){busy=false;return load()})}
+$('on').onchange=function(){var on=this.checked;act(on?{action:'start',settings:settings()}:{action:'stop'},function(d){if(d.running!==on)throw new Error(on?'VPN did not start':'VPN still running');return on?'VPN on'+(d.server?' · '+d.server:'')+'.':'VPN off. The TV uses your normal connection again.'},on?'Connecting…':'Disconnecting…')};
+function configure(){act({action:'configure',settings:settings()},function(d){var w=settings();if(d.country!==w.country||d.killswitch!==w.killswitch||d.autostart!==w.autostart)throw new Error('Settings not confirmed');return 'Saved'+(d.running?' · VPN reconnected'+(d.server?' to '+d.server:''):'')+'.'})}
+$('country').onchange=configure;$('ks').onchange=configure;$('auto').onchange=configure;
+$('saveKey').onclick=function(){var k=$('key').value.trim();if(!k){say('Paste the private key first',true);return}
+ act({action:'key',key:k},function(d){$('key').value='';var c=d.keyCheck||{};if(!c.ok)throw new Error('Key not accepted: '+(c.error||'unknown error'));return 'Private key saved. Choose a country above, then switch VPN on.'})};
+$('saveConfig').onclick=function(){var c=$('conf').value.trim();if(!c){say('Paste a WireGuard config first',true);return}
+ act({action:'config',conf:c},function(d){$('conf').value='';var k=d.configCheck||{};if(!k.ok)throw new Error('Config not accepted: '+(k.error||'unknown error'));return 'WireGuard config saved.'})};
+$('install').onclick=function(){var b=this;b.disabled=true;say('Downloading…');api('action',{action:'install'}).then(function(d){show(d);say(d.installed!==false?'Installed.':'Not installed.',d.installed===false)}).catch(function(e){say(e.message,true)}).then(function(){b.disabled=false;loadCountries()})};
+$('refresh').onclick=load;
+load().then(loadCountries);
+</script></body></html>

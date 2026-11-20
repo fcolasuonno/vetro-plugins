@@ -117,6 +117,19 @@
       "size": 74678
     },
     {
+      "id": "surfshark",
+      "name": "Surfshark",
+      "version": "1.0.0",
+      "author": "piecifra",
+      "description": "Surfshark WireGuard on the TV: country, kill switch, reconnect. Talks to api.surfshark.com, Surfshark servers and GitHub (its binary).",
+      "permissions": [
+        "exec"
+      ],
+      "url": "dist/surfshark-1.0.0.vplugin",
+      "sha256": "c309283fb09e6b0f06cc9a345e15fdedeb5746d2db37ed6f8697f02b4c9bb692",
+      "size": 72481
+    },
+    {
       "id": "tv-reboot",
       "name": "TV reboot",
       "version": "1.0.0",
