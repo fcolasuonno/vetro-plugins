@@ -18,9 +18,8 @@ account e-mail/password login — Surfshark's login API is Cloudflare-protected 
 
 Nothing is shown again in either case.
 
-> **Work in progress.** This Shard is a port of [`nordvpn`](../nordvpn) and has not yet been tested on a TV with a real
-> Surfshark subscription. The `BINARY` URL and SHA-256 in `index.js` are **placeholders**: set them to a real, pinned
-> `surfsharktv` release before publishing (see *The VPN program*). Until then, install `surfsharktv` by hand.
+This Shard is a port of [`nordvpn`](../nordvpn). The helper binary is published as a pinned release in
+[`fcolasuonno/surfsharktv`](https://github.com/fcolasuonno/surfsharktv).
 
 ## Permissions
 
@@ -29,7 +28,8 @@ Nothing is shown again in either case.
 ## The VPN program (`surfsharktv`)
 
 Node cannot drive `/dev/net/tun` without native code, so the VPN itself is a separate program, `surfsharktv`, written
-in Go on userspace [wireguard-go](https://git.zx2c4.com/wireguard-go). Its full source is in [`surfsharktv/`](surfsharktv),
+in Go on userspace [wireguard-go](https://git.zx2c4.com/wireguard-go). Its full source lives in
+[`fcolasuonno/surfsharktv`](https://github.com/fcolasuonno/surfsharktv) (a copy is in [`surfsharktv/`](surfsharktv)),
 a direct adaptation of the NordVPN Shard's `nordtv`. Build it with:
 
 ```sh
@@ -37,8 +37,9 @@ cd surfsharktv && ./build.sh            # reproducible armv7 build, gzip, SHA-25
 ```
 
 - **Where it comes from:** if `/opt/surfsharktv/surfsharktv` is missing, or was installed from another build, the Shard
-  downloads `BINARY.url` and installs it **only if its SHA-256 is `BINARY.sha256`**, pinned in `index.js`. A file with
-  any other hash is deleted and nothing is installed. **Both values are placeholders in this version.**
+  downloads `https://github.com/fcolasuonno/surfsharktv/releases/download/v1.0.0/surfsharktv.gz` and installs it **only
+  if its SHA-256 is `4f484e4c7af9064aca6f10db46376a85c76d73faeeb589023cea6d6f333fa09a`**, pinned in `index.js`. A file
+  with any other hash is deleted and nothing is installed.
 - **How it runs:** the Shard keeps it in `/opt/surfsharktv` and runs it from `/opt/surfsharktv/ro/surfsharktv`, a
   read-only bind mount of `/opt/surfsharktv/ro` that `start()` (re)creates on every boot. Newer Tizen firmware has a
   kernel UEP check that refuses unsigned ELFs on writable filesystems but skips read-only VDFS mounts; running from
@@ -101,8 +102,9 @@ config, if used), `log`, `.source` (hash of the installed binary), `surfsharktv`
 - Samsung QE77S90CATXXU (S90C, Tizen 9.0, kernel 5.4, ARMv7, Vetro 0.5.0): install and start, the `state` and
   `countries` routes (real Surfshark cluster list), and execution of the unsigned `surfsharktv` binary from the
   read-only VDFS bind mount. UEP accepts that mount; writable copies (`/dev/shm`, `/opt/surfsharktv`) are refused.
-- The tunnel itself is **not tested**: it needs a real Surfshark subscription and a registered WireGuard key.
+- With a registered WireGuard key on that TV: tunnel up to `it-rom.prod.surfshark.com`, country changes (IT → JP) and
+  kill switch toggles applied from the tab and from the Tizen app.
+- The pinned v1.0.0 release was downloaded from GitHub by the TV and accepted only with the pinned SHA-256.
 - Ported from [`nordvpn`](../nordvpn), which its author tested on a Samsung QE43Q60BAUXXN (Q60B, 2022, firmware
   T-NKLBDEUC-1720.7), Tizen 6.5. Older firmware like that one apparently allows the unsigned binary on writable
   storage directly, so `nordvpn` does not need the read-only mount.
-- Publishing still needs a real pinned `surfsharktv` release (the URL/SHA in `index.js` are placeholders).

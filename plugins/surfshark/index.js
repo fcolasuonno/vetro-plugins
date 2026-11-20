@@ -5,7 +5,7 @@
 //  - When it is missing, or was installed by an older plugin version, the plugin downloads BINARY.url, refuses it
 //    unless its SHA-256 is BINARY.sha256, unpacks it and records the checksum in /opt/surfsharktv/.source. This runs at
 //    start and from the page, never on every call, so a slow download cannot hold Vetro's command queue.
-//    NOTE: this first version ships a PLACEHOLDER url/sha256. Set both to the real surfsharktv release before publishing.
+//    The pinned release is surfsharktv v1.0.0 in https://github.com/fcolasuonno/surfsharktv.
 //  - Before each command it is copied into a read-only bind mount under /opt and run from there: newer Tizen
 //    firmware enforces UEP, which refuses unsigned ELFs on writable filesystems but skips read-only VDFS mounts.
 //    start() (re)creates that mount, so it comes back after every boot with this Shard.
@@ -13,7 +13,7 @@
 // a shell. The WireGuard private key/config is written through base64 and never read back.
 // Plain ES5: older TVs run Node 4.4.
 var fs = require('fs'), path = require('path'), http = require('http'), url = require('url');
-// TODO(release): replace the placeholder URL and SHA-256 below with the real pinned surfsharktv release, then rebuild.
+// Pinned v1.0.0 release: change both values together when publishing a new surfsharktv build.
 var BINARY = { url: 'https://github.com/fcolasuonno/surfsharktv/releases/download/v1.0.0/surfsharktv.gz', sha256: '4f484e4c7af9064aca6f10db46376a85c76d73faeeb589023cea6d6f333fa09a' };
 var DIR = '/opt/surfsharktv', RO = DIR + '/ro', RUN = RO + '/surfsharktv';
 var COUNTRY = /^[A-Z]{2}$/, SHA = /^[0-9a-f]{64}$/, URL_RE = /^https:\/\/[A-Za-z0-9.\/_~%+-]+$/;

@@ -17,7 +17,7 @@ dashboard shows under **Vetro Shards → Load plugin catalog**, the source of ev
 | [`shell`](plugins/shell) | A root shell on the TV, laid out like a terminal; one command at a time, `cd` remembered | `exec` | piecifra |
 | [`sonos-controller`](plugins/sonos-controller) | Remote volume and mute keys control a Sonos room through Vetro's MQTT rules; Sonos on your LAN, no cloud | none | genesai |
 | [`ssh-server`](plugins/ssh-server) | A real SSH-2 server in pure JS (no binary): `ssh` as a root line-shell, one-shot commands as root, `scp`/`sftp` as the owner. Needs Node 10+ | `exec` | bertrandom |
-| [`surfshark`](plugins/surfshark) | Surfshark (WireGuard) on the TV: country, kill switch, reconnect. Work in progress: placeholder binary pin; binary runs on Tizen 9, tunnel untested | `exec` | piecifra |
+| [`surfshark`](plugins/surfshark) | Surfshark (WireGuard) on the TV: country, kill switch, reconnect. Tested on Tizen 9 with a pinned release binary | `exec` | piecifra |
 | [`tv-reboot`](plugins/tv-reboot) | A button that restarts the TV; refuses while Samsung Home is disabled | `exec` | genesai |
 | [`tv-uptime`](plugins/tv-uptime) | How long the TV has been on | `exec` | andrearicci93 |
 | [`youtube`](plugins/youtube) | **Ad-free YouTube**: Samsung's own YouTube with ads blocked, Shorts hidden and sponsors skipped (TizenTube + SponsorBlock), nothing installed on the TV | `exec` | andrearicci93 |

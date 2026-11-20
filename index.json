@@ -126,8 +126,8 @@
         "exec"
       ],
       "url": "dist/surfshark-1.0.0.vplugin",
-      "sha256": "519e6427a7a5808defd60f3c1f593950fb7d46b79d523dbff3b632413840763c",
-      "size": 72484
+      "sha256": "57195bf49fe890c1c9310c3e873707dd5b46ca4ae8d5e44faa53757e83e5f5a3",
+      "size": 72503
     },
     {
       "id": "tv-reboot",
