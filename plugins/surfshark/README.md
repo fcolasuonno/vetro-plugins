@@ -53,6 +53,8 @@ All through `ctx.execute`, as root.
 | When | Command | Why |
 | --- | --- | --- |
 | before every command below | `chmod 700 /opt/surfsharktv`, `chmod 600 /opt/surfsharktv/*`, `chmod 700 /opt/surfsharktv/surfsharktv`; if `/opt/surfsharktv/ro` is not on a read-only mount or its copy differs (`md5sum`), `umount` it and remove the copy; then `cp` the binary, `chmod 700`, `mount --bind` the folder onto itself and `mount -o remount,ro,bind` | keep the folder root-only and stage the program on a read-only VDFS mount where UEP accepts it; a reboot drops the mount but leaves the copy, so the mount is recreated rather than assumed |
+| before every command below | `ip rule add to <net> lookup main pref 31001` for `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16` (silently ignored when already present) | keep private/LAN destinations outside the tunnel: the binary's kill switch only *allows* them through the firewall, but its policy routing would otherwise send them down `surftun`, so a host behind the router (e.g. `192.168.1.193`) could not be reached |
+| before every command below | read the `nameserver` lines from `/etc/resolv.conf` and `ip rule add to <resolver> lookup 51821 pref 31000` for each public one (local/private ones are skipped) | Tizen keeps /32 routes for its resolvers in the main table, so rule 31002 sent DNS out the LAN with a LAN source address; the binary's DNAT to Surfshark's resolver then got no replies and every name lookup timed out. Sending the resolvers through the tunnel keeps DNS forced to Surfshark and keeps it subject to the kill switch |
 | 15 s after the Shard starts, and on **Download and install** | `mkdir -p /opt/surfsharktv`; if the binary or its pinned hash is missing: `curl -fsSL --max-time 90` the URL above, `sha256sum` check, `gunzip`, `chmod 700`, `mv`, write the hash to `/opt/surfsharktv/.source` | install the pinned binary (nothing is downloaded when it is already there) |
 | before **VPN on** and before a country change (also on automatic reconnect) | `app_launcher -k org.tizen.netflix-app` (best effort, errors ignored) | close Netflix so it reopens on the new IP instead of keeping the old connection |
 | page opens, **Refresh**, every 60 s | `surfsharktv state` (page: `surfsharktv status -json`) | read the state |
@@ -62,7 +64,7 @@ All through `ctx.execute`, as root.
 | **Save private key** | `base64 -d > /opt/surfsharktv/wg.key.new`, `chmod 600`, `mv` to `/opt/surfsharktv/wg.key`, remove any `wg.conf`, `surfsharktv verify` | store the registered private key (never in clear on a command line) and check it with the public server list |
 | **Save config** | `base64 -d > /opt/surfsharktv/wg.conf.new`, `chmod 600`, `mv` to `/opt/surfsharktv/wg.conf`, remove any `wg.key`, `surfsharktv verify` | store the pasted WireGuard config (never in clear on a command line) and check that it parses |
 | every 60 s, only when "VPN on" and "Keep connected" are saved and the tunnel is down | `surfsharktv start` | reconnect after a restart or a drop; a failed start waits 2 minutes |
-| the Shard is switched off | `surfsharktv down` | stop the VPN and remove everything it created, keeping "VPN on" saved so it comes back with the Shard |
+| the Shard is switched off | `surfsharktv down`, then `ip rule del` for the four private nets and for the public resolvers read from `/etc/resolv.conf` | stop the VPN and remove everything it created, keeping "VPN on" saved so it comes back with the Shard |
 
 Inside `surfsharktv`, the commands that change the system are only `ip addr/link/route/rule`, `iptables` and
 `ip6tables` (next section).
@@ -73,7 +75,15 @@ While the VPN runs:
 
 - a `surftun` interface and policy routing like `wg-quick`: `ip rule` entries at priority 31002/31003, a default
   route in table 51821, fwmark 51821. The home network (LAN) stays reachable, Vetro included.
+- private destinations (`10/8`, `172.16/12`, `192.168/16`, `169.254/16`) get an extra `ip rule` at priority 31001
+  that looks them up in the main table, so they leave via the LAN instead of the tunnel — including hosts behind the
+  router, not just the TV's own subnet. All other internet traffic still goes through the VPN. These rules are added
+  by the Shard (`index.js`), not by the pinned `surfsharktv` binary.
 - **DNS is forced** to Surfshark's resolver (162.252.172.57): port 53 is redirected (`iptables -t nat`, chain `SURFTV_DNS`).
+  The Shard also puts the TV's public resolvers (from `/etc/resolv.conf`) into table 51821 at priority 31000: without it,
+  Tizen's /32 routes for those resolvers send DNS out the LAN, where the redirected queries get no reply. DNS therefore
+  still resolves public records (including ones pointing at private addresses, e.g. a Cloudflare `A` record for a LAN
+  host) while staying inside the tunnel.
 - **IPv6 egress is blocked** (`ip6tables`, chain `SURFTV`): the tunnel is IPv4 only.
 - **Kill switch, on by default** (`iptables`, chain `SURFTV`): internet traffic outside the tunnel is rejected.
   **If the VPN drops, the TV has no internet until it reconnects**; the LAN keeps working. Switch it off in the tab.

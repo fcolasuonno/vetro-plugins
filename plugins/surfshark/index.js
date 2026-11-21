@@ -19,6 +19,33 @@ var DIR = '/opt/surfsharktv', RO = DIR + '/ro', RUN = RO + '/surfsharktv';
 var COUNTRY = /^[A-Z]{2}$/, SHA = /^[0-9a-f]{64}$/, URL_RE = /^https:\/\/[A-Za-z0-9.\/_~%+-]+$/;
 var RETRY_MS = 120000, TICK_MS = 60000, FIRST_TICK_MS = 15000, MAX_BODY = 8192;
 
+// The pinned surfsharktv binary sends every non-marked packet to table 51821 (pref 31002/31003) and its kill switch
+// only *allows* RFC1918 destinations through the firewall — an allow is not a route. Look them up in the main table
+// at a higher priority instead, so private hosts leave via the LAN even when they are behind the router rather than
+// on the TV's own subnet (e.g. 192.168.1.193). Same list as the binary's kill switch. Done here, not in the Go helper,
+// so the SHA-256 pinned v1.0.0 binary does not have to be rebuilt or republished.
+var LAN_NETS = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16'], LAN_PREF = 31001;
+function lanRules() {
+    return LAN_NETS.map(function (n) { return 'ip rule add to ' + n + ' lookup main pref ' + LAN_PREF + ' 2>/dev/null || true\n'; }).join('');
+}
+function unlanRules() {
+    return LAN_NETS.map(function (n) { return 'ip rule del to ' + n + ' lookup main pref ' + LAN_PREF + ' 2>/dev/null || true\n'; }).join('');
+}
+// Tizen keeps explicit /32 routes for the resolvers in /etc/resolv.conf (1.1.1.1, 1.0.0.1 here) in the main table, so
+// rule 31002 above sends DNS out eth0 with a LAN source address. The binary then DNATs port 53 to Surfshark's resolver,
+// but those replies never come back — every name lookup times out. Route the configured resolvers into the tunnel at a
+// higher priority instead: the DNAT then works as intended (source 10.14.0.2), DNS stays forced to Surfshark and is not
+// exempted from the kill switch. Local/private resolvers are left alone. Read the list at run time, not at install time.
+var DNS_PREF = 31000;
+function dnsRule(verb) {
+    return 'grep "^nameserver" /etc/resolv.conf 2>/dev/null | awk "{print \\$2}" | while read ns; do\n' +
+        '  case "$ns" in 127.*|10.*|172.16.*|192.168.*|169.254.*) continue ;; esac\n' +
+        '  ip rule ' + verb + ' to "$ns" lookup 51821 pref ' + DNS_PREF + ' 2>/dev/null || true\n' +
+        'done\n';
+}
+function dnsRules() { return dnsRule('add'); }
+function undnsRules() { return dnsRule('del'); }
+
 // /opt/surfsharktv holds a binary that runs as root and the WireGuard key/config: root only. Folder 0700, files 0600, the
 // binary 0700 (the TV's default umask had left the folder 0777). Vetro reaches it only through the root agent.
 // UEP: the TV's kernel refuses unsigned ELFs on writable mounts, but skips read-only VDFS mounts. So the running copy
@@ -31,7 +58,10 @@ var STAGE = 'chmod 700 ' + DIR + ' 2>/dev/null; chmod 600 ' + DIR + '/* 2>/dev/n
     'if grep -q " ' + RO + ' " /proc/mounts 2>/dev/null && grep " ' + RO + ' " /proc/mounts | grep -q " ro," && [ "$(md5sum < ' + DIR + '/surfsharktv)" = "$(md5sum < ' + RUN + ' 2>/dev/null)" ]; then :; else umount ' + RO + ' 2>/dev/null; rm -f ' + RUN + '; fi\n' +
     'if [ ! -x ' + RUN + ' ]; then mkdir -p ' + RO + ' && chmod 700 ' + RO + ' && cp ' + DIR + '/surfsharktv ' + RUN + ' && chmod 700 ' + RUN + ' && mount --bind ' + RO + ' ' + RO + ' && mount -o remount,ro,bind ' + RO + '; fi\n' +
     'grep -q " ' + RO + ' " /proc/mounts 2>/dev/null && grep " ' + RO + ' " /proc/mounts | grep -q " ro," || { echo "VPN binary is not on a read-only mount"; exit 0; }\n' +
-    '[ -x ' + RUN + ' ] || { echo __NOBIN__; exit 0; }\ncd /\n';
+    '[ -x ' + RUN + ' ] || { echo __NOBIN__; exit 0; }\n' +
+    lanRules() +
+    dnsRules() +
+    'cd /\n';
 
 // Node 4.4 has a Buffer.from inherited from Uint8Array that does not take a string; Node 5.10+ has the real one.
 function bytes(s) { return Buffer.from && Buffer.from !== Uint8Array.from ? Buffer.from(s) : new Buffer(s); }
@@ -286,7 +316,7 @@ module.exports = function (ctx) {
         stop: function () {
             stopped = true; clearTimeout(first); clearInterval(timer); clearInterval(drainTimer); queue = []; page = null;
             if (controlServer) { try { controlServer.close(); } catch (e) { /* already gone */ } controlServer = null; }
-            try { ctx.execute(wrap('[ -x ' + RUN + ' ] && ' + RUN + ' down >/dev/null 2>&1; true'), 30000).catch(function () { /* nothing to undo */ }); } catch (e) { /* no exec: nothing ran */ }
+            try { ctx.execute(wrap('[ -x ' + RUN + ' ] && ' + RUN + ' down >/dev/null 2>&1 || true\n' + unlanRules() + undnsRules() + 'true\n'), 30000).catch(function () { /* nothing to undo */ }); } catch (e) { /* no exec: nothing ran */ }
         },
         status: function () { var s = vpn.last || {}; return { running: !!s.running, server: s.server || null, installed: s.installed !== false }; },
         route: function (req, res, sub) {
