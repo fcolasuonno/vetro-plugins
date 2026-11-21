@@ -52,8 +52,9 @@ All through `ctx.execute`, as root.
 
 | When | Command | Why |
 | --- | --- | --- |
-| before every command below | `chmod 700 /opt/surfsharktv`, `chmod 600 /opt/surfsharktv/*`, `chmod 700 /opt/surfsharktv/surfsharktv`; if `/opt/surfsharktv/ro` is mounted and its copy differs (`md5sum`), `umount` it; `mkdir -p` and `chmod 700` the folder; if the running copy is missing, `cp` the binary, `chmod 700`, `mount --bind` the folder onto itself and `mount -o remount,ro,bind` | keep the folder root-only and stage the program on a read-only VDFS mount where UEP accepts it |
+| before every command below | `chmod 700 /opt/surfsharktv`, `chmod 600 /opt/surfsharktv/*`, `chmod 700 /opt/surfsharktv/surfsharktv`; if `/opt/surfsharktv/ro` is not on a read-only mount or its copy differs (`md5sum`), `umount` it and remove the copy; then `cp` the binary, `chmod 700`, `mount --bind` the folder onto itself and `mount -o remount,ro,bind` | keep the folder root-only and stage the program on a read-only VDFS mount where UEP accepts it; a reboot drops the mount but leaves the copy, so the mount is recreated rather than assumed |
 | 15 s after the Shard starts, and on **Download and install** | `mkdir -p /opt/surfsharktv`; if the binary or its pinned hash is missing: `curl -fsSL --max-time 90` the URL above, `sha256sum` check, `gunzip`, `chmod 700`, `mv`, write the hash to `/opt/surfsharktv/.source` | install the pinned binary (nothing is downloaded when it is already there) |
+| before **VPN on** and before a country change (also on automatic reconnect) | `app_launcher -k org.tizen.netflix-app` (best effort, errors ignored) | close Netflix so it reopens on the new IP instead of keeping the old connection |
 | page opens, **Refresh**, every 60 s | `surfsharktv state` (page: `surfsharktv status -json`) | read the state |
 | country list | `surfsharktv countries` | names for the country picker |
 | a switch or the country changes | `surfsharktv set country CC` / `set killswitch on\|off` / `set autostart on\|off`, then `surfsharktv start` when the VPN is on | apply the setting; country and kill switch reconnect |

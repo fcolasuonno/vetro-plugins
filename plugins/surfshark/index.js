@@ -25,9 +25,12 @@ var RETRY_MS = 120000, TICK_MS = 60000, FIRST_TICK_MS = 15000, MAX_BODY = 8192;
 // lives in RO, a bind mount of /opt/surfsharktv/ro remounted read-only. Recreate it if it is missing or the binary changed.
 var STAGE = 'chmod 700 ' + DIR + ' 2>/dev/null; chmod 600 ' + DIR + '/* 2>/dev/null; chmod 700 ' + DIR + '/surfsharktv 2>/dev/null\n' +
     '[ -x ' + DIR + '/surfsharktv ] || { echo __NOBIN__; exit 0; }\n' +
-    'if grep -q " ' + RO + ' " /proc/mounts 2>/dev/null; then a=$(md5sum < ' + DIR + '/surfsharktv); b=$(md5sum < ' + RUN + ' 2>/dev/null); [ "$a" = "$b" ] || { umount ' + RO + ' 2>/dev/null; rm -f ' + RUN + '; }; fi\n' +
-    'mkdir -p ' + RO + ' && chmod 700 ' + RO + '\n' +
-    'if [ ! -x ' + RUN + ' ]; then cp ' + DIR + '/surfsharktv ' + RUN + ' && chmod 700 ' + RUN + ' && mount --bind ' + RO + ' ' + RO + ' && mount -o remount,ro,bind ' + RO + '; fi\n' +
+    // A reboot drops the bind mount but leaves the copy on disk. Checking only that the copy is executable then skips
+    // the mount, and UEP refuses the unsigned ELF on the writable filesystem ("Operation not permitted"). Keep the
+    // copy only when it is actually on a read-only mount and still matches the installed binary; otherwise recreate both.
+    'if grep -q " ' + RO + ' " /proc/mounts 2>/dev/null && grep " ' + RO + ' " /proc/mounts | grep -q " ro," && [ "$(md5sum < ' + DIR + '/surfsharktv)" = "$(md5sum < ' + RUN + ' 2>/dev/null)" ]; then :; else umount ' + RO + ' 2>/dev/null; rm -f ' + RUN + '; fi\n' +
+    'if [ ! -x ' + RUN + ' ]; then mkdir -p ' + RO + ' && chmod 700 ' + RO + ' && cp ' + DIR + '/surfsharktv ' + RUN + ' && chmod 700 ' + RUN + ' && mount --bind ' + RO + ' ' + RO + ' && mount -o remount,ro,bind ' + RO + '; fi\n' +
+    'grep -q " ' + RO + ' " /proc/mounts 2>/dev/null && grep " ' + RO + ' " /proc/mounts | grep -q " ro," || { echo "VPN binary is not on a read-only mount"; exit 0; }\n' +
     '[ -x ' + RUN + ' ] || { echo __NOBIN__; exit 0; }\ncd /\n';
 
 // Node 4.4 has a Buffer.from inherited from Uint8Array that does not take a string; Node 5.10+ has the real one.
@@ -45,6 +48,12 @@ function installScript(bin) {
 }
 
 function wrap(s) { return 'echo ' + bytes(s).toString('base64') + ' | base64 -d | sh'; }
+// An open Netflix app keeps the old connection after the tunnel or server changes, and can notice the switch.
+// Close it just before the change so it starts again on the new IP. Best effort: a failed kill never blocks the VPN.
+var NETFLIX_APP = 'org.tizen.netflix-app';
+function killNetflix(execute) {
+    return execute(wrap('app_launcher -k ' + NETFLIX_APP + ' >/dev/null 2>&1 || true'), 10000).catch(function () {});
+}
 function lastJson(out) {
     var lines = String(out || '').trim().split('\n');
     for (var i = lines.length - 1; i >= 0; i--) { var l = lines[i].trim(); if (l.charAt(0) === '{') { try { return JSON.parse(l); } catch (e) { /* not JSON */ } } }
@@ -103,20 +112,27 @@ Vpn.prototype.countries = function () {
         return (self.countryList = list);
     });
 };
-Vpn.prototype.start = function (opts) {
-    var self = this, o;
-    try { o = validate(opts); } catch (e) { return Promise.reject(e); }
+Vpn.prototype._start = function (o, kill) {
+    var self = this;
     return lock(this, function () {
-        return self.execute(wrap(STAGE + settingsScript(o) + RUN + ' start 2>&1'), 90000).then(function (r) {
-            if (/__NOBIN__/.test(r.stdout || '')) throw new Error('The VPN program is not installed');
-            return self.read(true).then(function (s) {
-                if (!s.running) throw failure(r, 'VPN did not start');
-                if (o.country !== undefined && s.country !== o.country) throw new Error('Country not confirmed');
-                if (o.killswitch !== undefined && s.killswitch !== o.killswitch) throw new Error('Kill switch not confirmed');
-                return s;
+        var run = function () {
+            return self.execute(wrap(STAGE + settingsScript(o) + RUN + ' start 2>&1'), 90000).then(function (r) {
+                if (/__NOBIN__/.test(r.stdout || '')) throw new Error('The VPN program is not installed');
+                return self.read(true).then(function (s) {
+                    if (!s.running) throw failure(r, 'VPN did not start');
+                    if (o.country !== undefined && s.country !== o.country) throw new Error('Country not confirmed');
+                    if (o.killswitch !== undefined && s.killswitch !== o.killswitch) throw new Error('Kill switch not confirmed');
+                    return s;
+                });
             });
-        });
+        };
+        return kill ? killNetflix(self.execute).then(run) : run();
     });
+};
+Vpn.prototype.start = function (opts) {
+    var o;
+    try { o = validate(opts); } catch (e) { return Promise.reject(e); }
+    return this._start(o, true);
 };
 Vpn.prototype.stop = function () {
     var self = this;
@@ -132,9 +148,13 @@ Vpn.prototype.configure = function (opts) {
     try { o = validate(opts); } catch (e) { return Promise.reject(e); }
     return this.read(false).then(function (s) {
         if (!s.installed) throw new Error('The VPN program is not installed');
-        var restart = s.running && (o.country !== undefined && o.country !== s.country || o.killswitch !== undefined && o.killswitch !== s.killswitch);
-        if (restart) return self.start(o);
-        return lock(self, function () { return self.execute(wrap(STAGE + settingsScript(o)), 15000).then(function () { return self.read(false); }); });
+        var countryChanged = o.country !== undefined && o.country !== s.country;
+        var restart = s.running && (countryChanged || o.killswitch !== undefined && o.killswitch !== s.killswitch);
+        if (restart) return self._start(o, countryChanged);
+        return lock(self, function () {
+            var run = function () { return self.execute(wrap(STAGE + settingsScript(o)), 15000).then(function () { return self.read(false); }); };
+            return countryChanged ? killNetflix(self.execute).then(run) : run();
+        });
     });
 };
 // A WireGuard private key registered on surfshark.com lets the TV pick a server per country from the public list, so
